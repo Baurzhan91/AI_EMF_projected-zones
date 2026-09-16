@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EMF Planner PRO</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.2/dist/leaflet-geoman.css" />
+    <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.2/dist/leaflet-geoman.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+    <style>
+      :root { --primary: #007bff; --success: #28a745; --danger: #dc3545; --dark: #343a40; --light: #f8f9fa; --border: #dee2e6; }
+      body { margin: 0; display: flex; font-family: "Segoe UI", sans-serif; height: 100vh; overflow: hidden; background-color: #e9ecef; }
+      #sidebar { width: 420px; background: white; height: 100%; overflow-y: auto; box-shadow: 2px 0 10px rgba(0,0,0,0.1); z-index: 1000; display: flex; flex-direction: column; }
+      .sidebar-header { background: var(--dark); color: white; padding: 15px; text-align: center; }
+      .section { padding: 15px; border-bottom: 1px solid var(--border); }
+      .section-title { font-size: 13px; font-weight: bold; color: var(--dark); margin-bottom: 10px; text-transform: uppercase; }
+      .form-group { margin-bottom: 8px; }
+      .form-group label { display: block; font-size: 11px; color: #6c757d; margin-bottom: 2px; }
+      .form-control { width: 100%; padding: 6px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; font-size: 13px; }
+      .row { display: flex; gap: 8px; margin-bottom: 5px; }
+      .col { flex: 1; }
+      .btn { width: 100%; padding: 8px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; color: white; margin-bottom: 5px; font-size: 13px; text-align: center; display: block; box-sizing: border-box;}
+      .btn-primary { background: var(--primary); }
+      .btn-success { background: var(--success); }
+      .btn-danger { background: var(--danger); }
+      .btn-warning { background: #ffc107; color: black; }
+      #main-content { flex-grow: 1; display: flex; flex-direction: column; height: 100%; position: relative; }
+      .tabs { display: flex; background: white; border-bottom: 1px solid var(--border); }
+      .tab { padding: 12px 20px; cursor: pointer; font-weight: bold; color: #6c757d; font-size: 14px; }
+      .tab.active { border-bottom: 3px solid var(--primary); color: var(--primary); }
+      .view-area { display: none; flex-grow: 1; height: 100%; width: 100%; }
+      .view-area.active { display: block; }
+      #map-view { background: #e5e3df; }
+      #report-view { background: white; padding: 20px; overflow-y: auto; }
+      .sector-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: var(--light); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 5px; font-size: 12px; }
+      #loader { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.9); z-index: 9999; flex-direction: column; justify-content: center; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <h2 style="margin: 0">EMF Planner PRO</h2>
+        <div style="font-size: 11px; margin-top: 5px; color: #ffc107">Автономный режим (Без БД)</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">1. Локация и Здания (OSM)</div>
+        <div class="row">
+          <div class="col form-group"><label>Lat</label><input type="number" id="lat" class="form-control" value="51.1282" /></div>
+          <div class="col form-group"><label>Lon</label><input type="number" id="lon" class="form-control" value="71.4304" /></div>
+        </div>
+        <div class="row">
+          <button class="btn btn-primary col" onclick="flyToCoords()">📍 Перейти</button>
+          <button class="btn btn-warning col" onclick="loadBuildings()">🏢 Здания (OSM)</button>
+        </div>
+        <p style="font-size: 10px; color: #666; margin: 5px 0 0 0">
+          * Кликните на здание на карте для изменения этажности. Сектора можно перетаскивать.
+        </p>
+      </div>
+
+      <div class="section">
+        <div class="section-title">2. Параметры Антенны</div>
+        <div class="row">
+          <div class="col">
+            <input type="file" id="ant-file" accept=".msi,.txt" style="display: none" onchange="handlePatternUpload(event)" />
+            <label for="ant-file" class="btn btn-warning" id="lbl-file">📂 Загрузить ДН (.msi)</label>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col form-group">
+            <label>Технология</label>
+            <select id="tech" class="form-control" onchange="updateTechDefaults()">
+              <option value="2G">2G / 3G</option>
+              <option value="4G">4G LTE</option>
+              <option value="5G" selected>5G NR (MIMO)</option>
+              <option value="MW">РРЛ</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col form-group"><label>Мощность (Вт)</label><input type="number" id="power" class="form-control" value="40" /></div>
+          <div class="col form-group"><label>КУ Traf (дБи)</label><input type="number" id="gainCSI" class="form-control" value="24" /></div>
+          <div class="col form-group"><label>КУ SSB (дБи)</label><input type="number" id="gainSSB" class="form-control" value="16" /></div>
+        </div>
+        <div class="row">
+          <div class="col form-group"><label>Азимут (°)</label><input type="number" id="azimuth" class="form-control" value="0" /></div>
+          <div class="col form-group"><label>Наклон (°)</label><input type="number" id="tilt" class="form-control" value="2" /></div>
+          <div class="col form-group"><label>Высота (м)</label><input type="number" id="height" class="form-control" value="30" /></div>
+        </div>
+        <div class="row">
+          <div class="col form-group"><label>F_tdc (%)</label><input type="number" id="f_tdc" class="form-control" value="74" /></div>
+          <div class="col form-group"><label>F_pr (%)</label><input type="number" id="f_pr" class="form-control" value="32" /></div>
+        </div>
+        <button class="btn btn-primary" onclick="addAntenna()">➕ Добавить сектор</button>
+      </div>
+
+      <div class="section" style="flex-grow: 1">
+        <div class="section-title">3. Сектора (<span id="sector-count">0</span>)</div>
+        <div id="sector-list" style="max-height: 150px; overflow-y: auto; margin-bottom: 5px"></div>
+        <button class="btn btn-danger" onclick="clearAntennas()">🗑 Очистить все</button>
+      </div>
+
+      <div class="section">
+        <button class="btn btn-success" style="font-size: 15px; padding: 12px" onclick="calculateBOZ()">🚀 РАССЧИТАТЬ 3D</button>
+      </div>
+    </div>
+
+    <div id="main-content">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('map-view', this)">🗺️ Топология</div>
+        <div class="tab" onclick="switchTab('plotly-view', this)">🧊 3D Модель</div>
+        <div class="tab" onclick="switchTab('report-view', this)">📊 Отчеты</div>
+      </div>
+
+      <div id="map-view" class="view-area active"></div>
+      <div id="plotly-view" class="view-area"></div>
+      <div id="report-view" class="view-area">
+        <h2>Инженерный отчет IEC 62232:2025</h2>
+        <button class="btn btn-success" style="width: 250px" onclick="exportExcel()">⬇️ Выгрузить в Excel</button>
+        <div id="report-content" style="margin-top: 15px">Нажмите "РАССЧИТАТЬ 3D" для формирования отчета.</div>
+      </div>
+
+      <div id="loader">
+        <h2 style="color: var(--primary)">Идет воксельная трассировка...</h2>
+        <div style="width: 300px; background: #ddd; height: 20px; border-radius: 10px; margin: 20px 0;">
+          <div id="progress" style="width: 0%; background: var(--success); height: 100%; border-radius: 10px; transition: 0.2s;"></div>
+        </div>
+        <button class="btn btn-danger" style="width: 200px" onclick="abortCalculation()">⏹ Остановить</button>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
